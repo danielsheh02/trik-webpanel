@@ -22,8 +22,7 @@ set $params
 
 Args="$*"
 
-model_config=model-config.xml
-rm $model_config
+model_config="model-config.xml.$$"
 
 current_params=current-params
 
@@ -92,6 +91,18 @@ done
 sed -i "s/<photo .*\/>/<photo src=\"\/dev\/video${getPhotoPort}\"\/>/g" "$model_config"
 sed -i "1c${ports_config}" $current_params
 
+get_status_367() {
+    local module="$1"
+
+	[[ -n "$module" ]] && lsmod | grep -q "$module" && echo 1 || echo 0
+}
+
+get_status_4x() {
+    local path="$1"
+
+	[[ -n "$path" && -f "$path" ]] && cat "$path" 2>/dev/null || echo 0
+}
+
 # $1: is_active; $2: name;
 add_mems() {
 	if [[ "$1" = "0" ]]; then
@@ -101,9 +112,18 @@ add_mems() {
   fi
 }
 
-add_mems "$(lsmod | grep -c mma845x)" "<accelerometer />"
-add_mems "$(lsmod | grep -c l3g42xxd)" "<gyroscope />"
+kernel=$(uname -r)
 
+# hot fix
+# in kernel 3.6.7 check loaded modules; 
+# in newer kernels, check for the presence of a file and whether the iio device is enabled;
+if [[ "$kernel" = "3.6.7" ]]; then
+    add_mems "$(get_status_367 "mma845x")" "<accelerometer />"
+    add_mems "$(get_status_367 "l3g42xxd")" "<gyroscope />"
+else
+    add_mems "$(get_status_4x "/sys/bus/iio/devices/iio:device0/buffer/enable")" "<boardAccelPort> <accelerometer /> </boardAccelPort>"
+    add_mems "$(get_status_4x "/sys/bus/iio/devices/iio:device1/buffer/enable")" "<boardGyroPort> <gyroscope /> </boardGyroPort>"
+fi
 
 cat >> $model_config << EOF
 	<irCameraPort>
@@ -123,7 +143,7 @@ cat >> $model_config << EOF
 </config>
 EOF
 
-cp "$model_config" "$(realpath /home/root/trik/model-config.xml)"
+mv "$model_config" "$(realpath /home/root/trik/model-config.xml)"
 
 echo "HTTP/1.1 201 Modified"
 
